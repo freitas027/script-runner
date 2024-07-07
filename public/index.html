@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Script Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/2.0.3/marked.min.js"></script>
+    <style>
+        .tooltip {
+            visibility: hidden;
+            position: absolute;
+            z-index: 1;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .info-icon:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body class="bg-white">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-4">Script Runner</h1>
+        <div class="flex items-center mb-4">
+            <select id="scriptSelect" class="flex-grow p-2 border border-gray-300 rounded">
+                <option value="">Select a script</option>
+            </select>
+            <button id="refreshButton" class="ml-2 bg-gray-200 text-black px-4 py-2 rounded">
+                &#x21bb; Refresh
+            </button>
+        </div>
+        <div id="scriptInfo" class="mb-4"></div>
+        <div id="argumentsContainer"></div>
+        <button id="runButton" class="bg-black text-white px-4 py-2 rounded mt-4">Run Script</button>
+        <div id="outputContainer" class="mt-4 p-4 bg-gray-100 rounded hidden">
+            <h2 class="text-xl font-bold mb-2">Output:</h2>
+            <pre id="output" class="whitespace-pre-wrap"></pre>
+        </div>
+    </div>
+    <script>
+        let scripts = [];
+
+        async function loadScripts() {
+            const response = await fetch('/api/scripts');
+            clearScript();
+            scripts = await response.json();
+            const select = document.getElementById('scriptSelect');
+            select.innerHTML = '<option value="">Select a script</option>';
+            scripts.forEach((script, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = script.name;
+                select.appendChild(option);
+            });
+        }
+
+        function updateScriptInfo(script) {
+            const infoContainer = document.getElementById('scriptInfo');
+            infoContainer.innerHTML = marked(script.description);
+        }
+
+        function createArgumentInput(arg) {
+            const container = document.createElement('div');
+            container.className = 'mb-4';
+
+            const labelContainer = document.createElement('div');
+            labelContainer.className = 'flex items-center mb-2';
+
+            const label = document.createElement('label');
+            label.className = 'font-bold';
+            label.textContent = arg.prompt;
+
+            const infoIcon = document.createElement('span');
+            infoIcon.className = 'info-icon cursor-pointer text-xl ml-0.5';
+            infoIcon.innerHTML = '&#9432;';
+
+            const tooltip = document.createElement('span');
+            tooltip.className = 'tooltip';
+            tooltip.innerHTML = marked(arg.description);
+
+            infoIcon.appendChild(tooltip);
+
+            labelContainer.appendChild(label);
+            labelContainer.appendChild(infoIcon);
+
+            const inputContainer = document.createElement('div');
+            inputContainer.className = 'flex items-center';
+
+            let input;
+            if (arg.type === 'enum') {
+                input = document.createElement('select');
+                input.className = 'w-full p-2 border border-gray-300 rounded';
+                arg.options.forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    input.appendChild(optionElement);
+                });
+            } else {
+                input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'w-full p-2 border border-gray-300 rounded';
+            }
+            input.id = `arg-${arg.order}`;
+
+            inputContainer.appendChild(input);
+
+            container.appendChild(labelContainer);
+            container.appendChild(inputContainer);
+
+            return container;
+        }
+
+        function updateArguments(script) {
+            const container = document.getElementById('argumentsContainer');
+            container.innerHTML = '';
+            script.arguments
+                .sort((a, b) => a.order - b.order)
+                .forEach(arg => {
+                    container.appendChild(createArgumentInput(arg));
+                });
+        }
+        function clearScript() {
+            document.getElementById('scriptInfo').innerHTML = ''
+            document.getElementById('argumentsContainer').innerHTML = ''
+        }
+
+        document.getElementById('scriptSelect').addEventListener('change', (e) => {
+            const selectedScript = scripts[e.target.value];
+            if (selectedScript) {
+                updateScriptInfo(selectedScript);
+                updateArguments(selectedScript);
+            } else {
+                clearScript();
+            }
+        });
+
+
+        document.getElementById('refreshButton').addEventListener('click', loadScripts);
+
+        document.getElementById('runButton').addEventListener('click', async () => {
+            const selectedIndex = document.getElementById('scriptSelect').value;
+            const selectedScript = scripts[selectedIndex];
+            if (selectedScript) {
+                const args = selectedScript.arguments
+                    .sort((a, b) => a.order - b.order)
+                    .map(arg => document.getElementById(`arg-${arg.order}`).value);
+
+                try {
+                    const response = await fetch('/api/run-script', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            scriptPath: selectedScript.scriptPath,
+                            args: args
+                        }),
+                    });
+
+                    const result = await response.json();
+
+                    const outputContainer = document.getElementById('outputContainer');
+                    const output = document.getElementById('output');
+
+                    if (result.success) {
+                        output.textContent = result.output;
+                    } else {
+                        output.textContent = `Error: ${result.error}\n${result.output || ''}`;
+                    }
+
+                    outputContainer.classList.remove('hidden');
+                } catch (error) {
+                    console.error('Failed to run script:', error);
+                    alert('Failed to run script. Please check the console for details.');
+                }
+            }
+        });
+
+        loadScripts();
+    </script>
+</body>
+
+</html>
